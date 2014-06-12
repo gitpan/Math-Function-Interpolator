@@ -1,27 +1,19 @@
-package Math::Function::Interpolator;
+package Math::Function::Interpolator::Linear;
 
 use 5.006;
 use strict;
 use warnings FATAL => 'all';
 
-use Moo;
-with qw(MooX::Traits);
+our $VERSION = '0.01';
 
+use Moo::Role;
 use Carp qw(confess);
+use Number::Closest::XS qw(find_closest_numbers_around);
 use Scalar::Util qw(looks_like_number);
-use Module::Runtime;
-use Module::Pluggable
-  sub_name    => 'interpolate_methods',
-  search_path => ['Math::Function::Interpolator'],
-;
 
 =head1 NAME
 
-Math::Function::Interpolator - Interpolation made easy
-
-=head1 VERSION
-
-Version 0.03
+Math::Function::Interpolator::Linear - Interpolation made easy
 
 =head1 SYNOPSIS
 
@@ -33,112 +25,52 @@ Version 0.03
 
     $interpolator->linear(2.5);
 
-    $interpolator->quadratic(2.5);
-
-    $interpolator->cubic(2.5);
-
 =head1 DESCRIPTION
 
-Math::Function::Interpolator helps you to do the interpolation calculation with linear, quadratic and cubic methods.
-
-=head1 FIELDS
-
-=head2 points (REQUIRED)
-
-HashRef of points for interpolations
+Math::Function::Interpolator::Linear helps you to do the interpolation calculation with linear method.
+It solves for point_y linearly given point_x and an array of points.    
 
 =cut
 
-our $VERSION = '0.03';
-
-# Automatically load all interpolate methods
-has 'interpolate_classes' => (
-    is      => 'ro',
-    lazy    => 1,
-    default => sub {
-        my ($self) = @_;
-        my @modules = $self->interpolate_methods();
-        foreach my $module (@modules) {
-            Module::Runtime::require_module($module);
-        }
-        return 1;
-    }
-);
-
-has points => (
+has 'interpolate' => (
     is       => 'ro',
     isa      => sub {
-        die "Points $_[0] shold be hash" unless ref $_[0] eq 'HASH';
+        die "Must be Interpolate class"
+        unless ref $_[0] eq 'Math::Function::Interpolator';
     },
-    required => 1,
+    required => 1
 );
 
 =head1 METHODS
 
-=head2 BUILDARGS
+=head2 do_calculation
 
-BUILDARGS
-
-=cut
-
-sub BUILDARGS {    ## no critic (Subroutines::RequireArgUnpacking)
-    my $self = shift;
-    my %args = ref( $_[0] ) ? %{ $_[0] } : @_;
-
-    # We can't interpolate properly on undef values so make sure we know
-    # they are missing by removing them entirely.
-    my $points = $args{points};
-    $args{points} = {
-        map { $_ => $points->{$_} }
-        grep { defined $points->{$_} } keys %$points
-    };
-
-    return \%args;
-}
-
-=head2 linear
-
-This method do the linear interpolation. It solves for point_y linearly given point_x and an array of points.
+do_calculation
 
 =cut
 
-sub linear {
+# Solves for point_y linearly given point_x and an array of points.
+sub do_calculation {
     my ( $self, $x ) = @_;
-    confess "point_x must be numeric" if !looks_like_number($x);
-    $self->interpolate_classes();
-    return Math::Function::Interpolator->with_traits(
-        'Math::Function::Interpolator::Linear')->new( interpolate => $self )
-      ->do_calculation($x);
-}
 
-=head2 quadratic
+    confess "sought_point[$x] must be a number" unless looks_like_number($x);
+    my $ap = $self->interpolate->points;
+    return $ap->{$x} if defined $ap->{$x};    # no need to interpolate
 
-This method do the quadratic interpolation. It solves the interpolated_y value given point_x with 3 data points.
+    my @Xs = keys %$ap;
+    confess "cannot interpolate with fewer than 2 data points"
+      if scalar @Xs < 2;
 
-=cut
+    my ( $first, $second );
+    ( $first->{x}, $second->{x} ) =
+      @{ find_closest_numbers_around( $x, \@Xs, 2 ) };
+    ( $first->{y}, $second->{y} ) =
+      ( $ap->{ $first->{x} }, $ap->{ $second->{x} } );
 
-sub quadratic {
-    my ( $self, $x ) = @_;
-    confess "point_x must be numeric" if !looks_like_number($x);
-    $self->interpolate_classes();
-    return Math::Function::Interpolator->with_traits(
-        'Math::Function::Interpolator::Quadratic')->new( interpolate => $self )
-      ->do_calculation($x);
-}
+    my $m = ( $second->{y} - $first->{y} ) / ( $second->{x} - $first->{x} );
+    my $c = $first->{y} - ( $first->{x} * $m );
 
-=head2 cubic
-
-This method do the cubic interpolation. It solves the interpolated_y given point_x and a minimum of 5 data points.
-
-=cut
-
-sub cubic {
-    my ( $self, $x ) = @_;
-    confess "point_x must be numeric" if !looks_like_number($x);
-    $self->interpolate_classes();
-    return Math::Function::Interpolator->with_traits(
-        'Math::Function::Interpolator::Cubic')->new( interpolate => $self )
-      ->do_calculation($x);
+    return $m * $x + $c;
 }
 
 =head1 AUTHOR
@@ -150,6 +82,8 @@ Binary.com, C<< <perl at binary.com> >>
 Please report any bugs or feature requests to C<bug-math-function-interpolator at rt.cpan.org>, or through
 the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Math-Function-Interpolator>.  I will be notified, and then you'll
 automatically be notified of progress on your bug as I make changes.
+
+
 
 
 =head1 SUPPORT
@@ -228,4 +162,4 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 =cut
 
-1;    # End of Math::Function::Interpolator
+1;    # End of Math::Function::Interpolator::Linear

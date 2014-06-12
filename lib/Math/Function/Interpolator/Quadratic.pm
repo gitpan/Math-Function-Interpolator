@@ -1,144 +1,104 @@
-package Math::Function::Interpolator;
+package Math::Function::Interpolator::Quadratic;
 
 use 5.006;
 use strict;
 use warnings FATAL => 'all';
 
-use Moo;
-with qw(MooX::Traits);
+our $VERSION = '0.01';
+
+use Moo::Role;
 
 use Carp qw(confess);
+use List::MoreUtils qw(pairwise indexes);
+use List::Util qw(min max);
+use Math::Cephes::Matrix qw(mat);
+use Number::Closest::XS qw(find_closest_numbers_around);
+use POSIX;
 use Scalar::Util qw(looks_like_number);
-use Module::Runtime;
-use Module::Pluggable
-  sub_name    => 'interpolate_methods',
-  search_path => ['Math::Function::Interpolator'],
-;
+use Try::Tiny;
+
+has 'interpolate' => (
+    is       => 'ro',
+    isa      => sub {
+        die "Must be Interpolate class"
+        unless ref $_[0] eq 'Math::Function::Interpolator';
+    },
+    required => 1
+);
 
 =head1 NAME
 
-Math::Function::Interpolator - Interpolation made easy
-
-=head1 VERSION
-
-Version 0.03
+Math::Function::Interpolator::Quadratic
 
 =head1 SYNOPSIS
 
     use Math::Function::Interpolator;
 
     my $interpolator = Math::Function::Interpolator->new(
-        points => {1=>2,2=>3,3=>4}
+        points => {1=>2,2=>3,3=>4,4=>5,5=>6}
     );
-
-    $interpolator->linear(2.5);
 
     $interpolator->quadratic(2.5);
 
-    $interpolator->cubic(2.5);
-
 =head1 DESCRIPTION
 
-Math::Function::Interpolator helps you to do the interpolation calculation with linear, quadratic and cubic methods.
-
-=head1 FIELDS
-
-=head2 points (REQUIRED)
-
-HashRef of points for interpolations
-
-=cut
-
-our $VERSION = '0.03';
-
-# Automatically load all interpolate methods
-has 'interpolate_classes' => (
-    is      => 'ro',
-    lazy    => 1,
-    default => sub {
-        my ($self) = @_;
-        my @modules = $self->interpolate_methods();
-        foreach my $module (@modules) {
-            Module::Runtime::require_module($module);
-        }
-        return 1;
-    }
-);
-
-has points => (
-    is       => 'ro',
-    isa      => sub {
-        die "Points $_[0] shold be hash" unless ref $_[0] eq 'HASH';
-    },
-    required => 1,
-);
+Math::Function::Interpolator::Quadratic helps you to do the interpolation calculation with quadratic method.
+It solves the interpolated_y given point_x and a minimum of 5 data points. 
 
 =head1 METHODS
 
-=head2 BUILDARGS
+=head2 do_calculation
 
-BUILDARGS
+do_calculation
 
 =cut
 
-sub BUILDARGS {    ## no critic (Subroutines::RequireArgUnpacking)
-    my $self = shift;
-    my %args = ref( $_[0] ) ? %{ $_[0] } : @_;
+# Returns the interpolated_y value given point_x with 3 data points
+sub do_calculation {
+    my ( $self, $x ) = @_;
 
-    # We can't interpolate properly on undef values so make sure we know
-    # they are missing by removing them entirely.
-    my $points = $args{points};
-    $args{points} = {
-        map { $_ => $points->{$_} }
-        grep { defined $points->{$_} } keys %$points
-    };
+    confess "sought_point[$x] must be a number" unless looks_like_number($x);
+    my $ap = $self->interpolate->points;
+    return $ap->{$x} if defined $ap->{$x};    # no need to interpolate
 
-    return \%args;
+    my @Xs = keys %$ap;
+    confess "cannot interpolate with fewer than 3 data points"
+      if scalar @Xs < 3;
+
+    my @points = $self->_get_closest_three_points( $x, \@Xs );
+
+    # Three cofficient
+    my $abc = mat( [ map { [ $_**2, $_, 1 ] } @points ] );
+
+    my $y = [ map { $ap->{$_} } @points ];
+
+    my $solution;
+    try { $solution = $abc->simq($y) }
+    catch { confess 'Insoluble matrix: ' . $_; };
+    my ( $a, $b, $c ) = @$solution;
+
+    return ( $a * ( $x**2 ) + $b * $x + $c );
 }
 
-=head2 linear
 
-This method do the linear interpolation. It solves for point_y linearly given point_x and an array of points.
+# Returns the the closest three points to the sought point.
+# The third point is chosen based on the point which is closer to mid point
+# $interpolator->_get_closest_three_points(2.4,[1,2,3,4,9]) #returns (2,3,4)
 
-=cut
+sub _get_closest_three_points {
+    my ( $self, $sought, $all_points ) = @_;
 
-sub linear {
-    my ( $self, $x ) = @_;
-    confess "point_x must be numeric" if !looks_like_number($x);
-    $self->interpolate_classes();
-    return Math::Function::Interpolator->with_traits(
-        'Math::Function::Interpolator::Linear')->new( interpolate => $self )
-      ->do_calculation($x);
-}
+    my @ap = sort { $a <=> $b } @{$all_points};
+    my $length = scalar @ap;
 
-=head2 quadratic
+    my ( $first, $second ) =
+      @{ find_closest_numbers_around( $sought, $all_points, 2 ) };
+    my @indexes = indexes { $first == $_ or $second == $_ } @ap;
+    my $third_index =
+      ( max(@indexes) < $length - 2 ) ? max(@indexes) + 1 : min(@indexes) - 1;
+    my @sorted = sort { $a <=> $b } ( $first, $second, $ap[$third_index] );
 
-This method do the quadratic interpolation. It solves the interpolated_y value given point_x with 3 data points.
-
-=cut
-
-sub quadratic {
-    my ( $self, $x ) = @_;
-    confess "point_x must be numeric" if !looks_like_number($x);
-    $self->interpolate_classes();
-    return Math::Function::Interpolator->with_traits(
-        'Math::Function::Interpolator::Quadratic')->new( interpolate => $self )
-      ->do_calculation($x);
-}
-
-=head2 cubic
-
-This method do the cubic interpolation. It solves the interpolated_y given point_x and a minimum of 5 data points.
-
-=cut
-
-sub cubic {
-    my ( $self, $x ) = @_;
-    confess "point_x must be numeric" if !looks_like_number($x);
-    $self->interpolate_classes();
-    return Math::Function::Interpolator->with_traits(
-        'Math::Function::Interpolator::Cubic')->new( interpolate => $self )
-      ->do_calculation($x);
+    return @sorted;
 }
 
 =head1 AUTHOR
@@ -150,7 +110,6 @@ Binary.com, C<< <perl at binary.com> >>
 Please report any bugs or feature requests to C<bug-math-function-interpolator at rt.cpan.org>, or through
 the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Math-Function-Interpolator>.  I will be notified, and then you'll
 automatically be notified of progress on your bug as I make changes.
-
 
 =head1 SUPPORT
 
@@ -228,4 +187,4 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 =cut
 
-1;    # End of Math::Function::Interpolator
+1;    # End of Math::Function::Interpolator::Quadratic
