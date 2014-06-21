@@ -28,9 +28,6 @@
             "Math::Cephes::Matrix" : "0",
             "Module::Pluggable" : "0",
             "Module::Runtime" : "0",
-            "Moo" : "0",
-            "Moo::Role" : "0",
-            "MooX::Traits" : "0",
             "Number::Closest::XS" : "0",
             "POSIX" : "0",
             "Scalar::Util" : "0",
@@ -52,5 +49,11 @@
       }
    },
    "release_status" : "stable",
-   "version" : "0.07"
+   "resources" : {
+      "bugtracker" : {
+         "web" : "http://rt.cpan.org/NoAuth/Bugs.html?Dist=Math-Function-Interpolator"
+      },
+      "homepage" : "https://github.com/binary-com/perl-Math-Function-Interpolator"
+   },
+   "version" : "0.08"
 }
